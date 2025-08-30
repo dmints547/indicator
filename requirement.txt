@@ -1,0 +1,9 @@
+flask
+flask-cors
+flask-socketio
+apscheduler
+requests
+pandas
+numpy
+python-dotenv
+sqlalchemy
