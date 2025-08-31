@@ -1,0 +1,73 @@
+name: Full Matrix (Targeted Tests, All OS Fixed)
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ['3.9', '3.10', '3.11']
+        env-file: ['environment-dev.yml', 'environment-prod.yml']
+
+    steps:
+      # 1. Checkout repo
+      - uses: actions/checkout@v4
+
+      # 2. Set up Miniconda (works on all OSes)
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: ${{ matrix.python-version }}
+          channels: conda-forge,defaults
+          activate-environment: base
+
+      # 3. Cache the full Conda environment for this OS + Python + env-file
+      - name: Cache Conda environment
+        id: conda-cache
+        uses: actions/cache@v4.2.4
+        with:
+          path: ~/conda_env_${{ matrix.os }}_${{ matrix.python-version }}_${{ matrix.env-file }}
+          key: ${{ runner.os }}-conda-env-${{ matrix.python-version }}-${{ matrix.env-file }}-${{ hashFiles(matrix.env-file) }}
+          restore-keys: |
+            ${{ runner.os }}-conda-env-${{ matrix.python-version }}-${{ matrix.env-file }}-
+
+      # 4. Create or update environment only if cache miss
+      - name: Create/Update Conda environment
+        if: steps.conda-cache.outputs.cache-hit != 'true'
+        run: |
+          conda env create --prefix ~/conda_env_${{ matrix.os }}_${{ matrix.python-version }}_${{ matrix.env-file }} --file ${{ matrix.env-file }} || \
+          conda env update --prefix ~/conda_env_${{ matrix.os }}_${{ matrix.python-version }}_${{ matrix.env-file }} --file ${{ matrix.env-file }} --prune
+
+      # 5. Activate environment
+      - name: Activate Conda environment
+        run: |
+          conda activate ~/conda_env_${{ matrix.os }}_${{ matrix.python-version }}_${{ matrix.env-file }}
+          conda info --envs
+
+      # 6. Lint + Unit Tests for dev env
+      - name: Lint and Unit Tests (Dev)
+        if: endsWith(matrix.env-file, 'environment-dev.yml')
+        run: |
+          conda activate ~/conda_env_${{ matrix.os }}_${{ matrix.python-version }}_${{ matrix.env-file }}
+          conda install flake8 pytest
+          echo "🔍 Running lint checks..."
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+          echo "🧪 Running unit tests..."
+          pytest tests/unit
+
+      # 7. Integration Tests for prod env
+      - name: Integration Tests (Prod)
+        if: endsWith(matrix.env-file, 'environment-prod.yml')
+        run: |
+          conda activate ~/conda_env_${{ matrix.os }}_${{ matrix.python-version }}_${{ matrix.env-file }}
+          conda install pytest
+          echo "🧪 Running integration tests..."
+          pytest tests/integration
