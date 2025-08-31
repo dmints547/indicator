@@ -10,7 +10,7 @@ dependencies:
   - flask-socketio
   - requests
   - pandas
-  - numpy
+  - numpy           # ✅ Added
   - sqlalchemy
   - psycopg2
   - plotly
