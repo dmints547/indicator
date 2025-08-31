@@ -1,0 +1,23 @@
+name: trading-prod
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  # Core runtime
+  - python=3.10
+  - flask
+  - flask-cors
+  - flask-socketio
+  - requests
+  - pandas
+  - numpy
+  - sqlalchemy
+  - psycopg2
+  - plotly
+  - pip
+
+  # Pip-only packages
+  - pip:
+      - python-dotenv
+      - apscheduler
+      - httpx
