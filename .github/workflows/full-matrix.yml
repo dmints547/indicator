@@ -1,0 +1,97 @@
+name: Full Matrix (Targeted Tests + Auto‑Commit Requirements Once)
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - 'requirements.txt'  # ✅ Don't rerun full matrix for auto-commit from Smoke Test
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ['3.9', '3.10', '3.11']
+        env-file: ['environment-dev.yml', 'environment-prod.yml']
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: ${{ matrix.python-version }}
+          channels: conda-forge,defaults
+          activate-environment: base
+
+      - name: Cache Conda environment
+        id: conda-cache
+        uses: actions/cache@v4.2.4
+        with:
+          path: ~/conda_env_${{ matrix.os }}_${{ matrix.python-version }}_${{ matrix.env-file }}
+          key: ${{ runner.os }}-conda-env-${{ matrix.python-version }}-${{ matrix.env-file }}-${{ hashFiles(matrix.env-file) }}
+          restore-keys: |
+            ${{ runner.os }}-conda-env-${{ matrix.python-version }}-${{ matrix.env-file }}-
+
+      - name: Create/Update Conda environment
+        if: steps.conda-cache.outputs.cache-hit != 'true'
+        run: |
+          conda env create --prefix ~/conda_env_${{ matrix.os }}_${{ matrix.python-version }}_${{ matrix.env-file }} --file ${{ matrix.env-file }} || \
+          conda env update --prefix ~/conda_env_${{ matrix.os }}_${{ matrix.python-version }}_${{ matrix.env-file }} --file ${{ matrix.env-file }} --prune
+
+      - name: Activate Conda environment
+        run: conda activate ~/conda_env_${{ matrix.os }}_${{ matrix.python-version }}_${{ matrix.env-file }}
+
+      - name: Check for missing imports
+        run: |
+          conda activate ~/conda_env_${{ matrix.os }}_${{ matrix.python-version }}_${{ matrix.env-file }}
+          pip install pipreqs
+          pipreqs --force --ignore .github --savepath temp-reqs.txt
+          MISSING=0
+          while read -r pkg; do
+            if ! pip show "$(echo $pkg | cut -d'=' -f1)" > /dev/null 2>&1; then
+              echo "❌ Missing package: $pkg"
+              MISSING=1
+            fi
+          done < temp-reqs.txt
+          if [ $MISSING -eq 1 ]; then
+            exit 1
+          fi
+
+      - name: Export requirements.txt
+        run: |
+          conda activate ~/conda_env_${{ matrix.os }}_${{ matrix.python-version }}_${{ matrix.env-file }}
+          pip freeze > requirements.txt
+
+      - name: Commit updated requirements.txt
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10' && endsWith(matrix.env-file, 'environment-prod.yml')
+        uses: stefanzweifel/git-auto-commit-action@v6
+        with:
+          commit_message: "ci: sync requirements.txt from ${{ matrix.env-file }} [skip ci]"
+          file_pattern: requirements.txt
+          branch: ${{ github.head_ref }}
+
+      - name: Lint and Unit Tests (Dev)
+        if: endsWith(matrix.env-file, 'environment-dev.yml')
+        run: |
+          conda activate ~/conda_env_${{ matrix.os }}_${{ matrix.python-version }}_${{ matrix.env-file }}
+          conda install flake8 pytest
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+          pytest tests/unit
+
+      - name: Integration Tests (Prod)
+        if: endsWith(matrix.env-file, 'environment-prod.yml')
+        run: |
+          conda activate ~/conda_env_${{ matrix.os }}_${{ matrix.python-version }}_${{ matrix.env-file }}
+          conda install pytest
+          pytest tests/integration
