@@ -1,0 +1,23 @@
+name: trading-dev
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - flask
+  - flask-cors
+  - flask-socketio
+  - requests
+  - pandas
+  - numpy
+  - sqlalchemy
+  - psycopg2
+  - plotly
+  - pytest
+  - flake8
+  - black
+  - isort
+  - pip
+  - pip:
+      - python-dotenv
+      - apscheduler
