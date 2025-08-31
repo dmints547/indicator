@@ -19,6 +19,7 @@ from sqlalchemy.orm import sessionmaker, scoped_session
 from models import Base, Snapshot
 from indicators import compute_indicators
 from signals import generate_signal, classify_strength
+from streaming.socketio_service import init_socketio
 
 # ---------------- Setup ----------------
 load_dotenv()
