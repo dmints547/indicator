@@ -1,4 +1,5 @@
 # app.py
+import numpy as np  # add this
 import os
 import time
 import logging
