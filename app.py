@@ -216,6 +216,32 @@ def poll_symbols():
             upsert_cache(cache_key(symbol, tf), df)
             persist_snapshots(symbol, tf, df)
             compute_and_emit(symbol, tf)
+            
+def safe_float(x):
+    try:
+        if x is None:
+            return None
+        xf = float(x)
+        return xf if np.isfinite(xf) else None
+    except Exception:
+        return None
+
+def build_indicators_payload(df_ind: pd.DataFrame, limit: int = 150, fields: Optional[List[str]] = None):
+    default_fields = [
+        "close","sma20","sma50","ema12","ema26","rsi14",
+        "macd","macd_signal","macd_hist","bb_ma","bb_up","bb_lo","atr14"
+    ]
+    cols = fields or default_fields
+    # Keep only existing columns
+    cols = [c for c in cols if c in df_ind.columns]
+    slim = df_ind[cols].tail(limit).copy()
+    idx = slim.index.to_pydatetime()
+    out = {
+        "ts": [t.replace(tzinfo=timezone.utc).isoformat() for t in idx]
+    }
+    for c in cols:
+        out[c] = [safe_float(v) for v in slim[c].tolist()]
+    return out
 
 # ---------------- Scheduler ----------------
 scheduler = BackgroundScheduler(daemon=True)
@@ -304,3 +330,69 @@ if __name__ == "__main__":
     # Prime cache on boot
     poll_symbols()
     socketio.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=True)
+
+# ---------------- diagnostics ----------------
+@app.get("/api/diagnostics")
+def diagnostics():
+    symbol = request.args.get("symbol", DEFAULT_SYMBOLS[0]).upper()
+    tf = request.args.get("tf", TIMEFRAMES[-1])  # default 1min
+    limit = int(request.args.get("limit", "150"))
+    # Optional: comma-separated list of indicator fields
+    fields_param = request.args.get("fields")
+    field_list = [f.strip() for f in fields_param.split(",")] if fields_param else None
+
+    key = cache_key(symbol, tf)
+    bars = CACHE.get(key, [])
+    if len(bars) < 60:
+        return jsonify({"error": "insufficient data"}), 425
+
+    df = pd.DataFrame(bars)
+    df["ts"] = pd.to_datetime(df["ts"], utc=True)
+    df.set_index("ts", inplace=True)
+
+    df_ind = compute_indicators(df)
+    sig = generate_signal(df_ind)
+    strength = classify_strength(sig["trend"], sig["confidence"])
+
+    indicators = build_indicators_payload(df_ind, limit=limit, fields=field_list)
+
+    # Latest indicator snapshot (single row)
+    latest = df_ind.iloc[-1]
+    latest_snapshot = {
+        "close": safe_float(latest.get("close")),
+        "sma20": safe_float(latest.get("sma20")),
+        "sma50": safe_float(latest.get("sma50")),
+        "ema12": safe_float(latest.get("ema12")),
+        "ema26": safe_float(latest.get("ema26")),
+        "rsi14": safe_float(latest.get("rsi14")),
+        "macd": safe_float(latest.get("macd")),
+        "macd_signal": safe_float(latest.get("macd_signal")),
+        "macd_hist": safe_float(latest.get("macd_hist")),
+        "bb_ma": safe_float(latest.get("bb_ma")),
+        "bb_up": safe_float(latest.get("bb_up")),
+        "bb_lo": safe_float(latest.get("bb_lo")),
+        "atr14": safe_float(latest.get("atr14")),
+    }
+
+    return jsonify({
+        "meta": {
+            "symbol": symbol,
+            "timeframe": tf,
+            "count": len(indicators.get("ts", [])),
+            "note": "Initial values may be null until rolling windows warm up."
+        },
+        "latest_signal": {
+            "trend": sig["trend"],
+            "strength": strength,
+            "confidence": safe_float(sig["confidence"]),
+            "entry": safe_float(sig["entry"]),
+            "stop_loss": safe_float(sig["stop_loss"]),
+            "take_profit": safe_float(sig["take_profit"]),
+            "last_close": safe_float(latest_snapshot["close"]),
+            "explain": sig["explain"],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+        "latest_indicators": latest_snapshot,
+        "series": indicators
+    })
+
