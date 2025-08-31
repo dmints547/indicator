@@ -34,7 +34,7 @@ CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": CORS_ORIGINS}})
-socketio = SocketIO(app, cors_allowed_origins=CORS_ORIGINS, async_mode="threading")
+socketio = init_socketio(app)
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("marketstack")
