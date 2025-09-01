@@ -1,0 +1,54 @@
+version: "3.9"
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg14
+    container_name: timescaledb
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: market
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+    container_name: trading-backend
+    command: python app.py
+    environment:
+      - MARKETSTACK_API_KEY=${MARKETSTACK_API_KEY}
+      - SYMBOLS=${SYMBOLS}
+      - POLL_SECONDS=${POLL_SECONDS}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      - DATABASE_URL=postgresql+psycopg2://postgres:postgres@timescaledb:5432/market
+    ports:
+      - "5000:5000"
+    depends_on:
+      - timescaledb
+    volumes:
+      - ./backend:/app
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: trading-frontend
+    environment:
+      - REACT_APP_API_URL=http://localhost:5000
+      - REACT_APP_WS_URL=http://localhost:5000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+
+volumes:
+  timescale_data:
