@@ -15,10 +15,8 @@ services:
     restart: unless-stopped
 
   backend:
-    build:
-      context: ./backend
+    image: ${DOCKER_USERNAME}/trading-backend:${BACKEND_TAG:-latest}
     container_name: trading-backend
-    command: python app.py
     environment:
       - MARKETSTACK_API_KEY=${MARKETSTACK_API_KEY}
       - SYMBOLS=${SYMBOLS}
@@ -29,13 +27,10 @@ services:
       - "5000:5000"
     depends_on:
       - timescaledb
-    volumes:
-      - ./backend:/app
     restart: unless-stopped
 
   frontend:
-    build:
-      context: ./frontend
+    image: ${DOCKER_USERNAME}/trading-frontend:${FRONTEND_TAG:-latest}
     container_name: trading-frontend
     environment:
       - REACT_APP_API_URL=http://localhost:5000
@@ -44,10 +39,6 @@ services:
       - "3000:3000"
     depends_on:
       - backend
-    volumes:
-      - ./frontend:/app
-    stdin_open: true
-    tty: true
     restart: unless-stopped
 
 volumes:
